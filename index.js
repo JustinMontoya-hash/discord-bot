@@ -26,7 +26,7 @@ client.once('ready', async () => {
     );
     console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
-    console.error(error);
+    console.error('Failed to register slash commands:', error);
   }
 });
 
