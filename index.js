@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const express = require('express');
 
-// Tiny web server to satisfy Railway's health check
+// Web server for Railway health checks
 const app = express();
 const PORT = process.env.PORT || 3000;
 
