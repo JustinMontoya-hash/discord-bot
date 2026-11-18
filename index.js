@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const express = require('express');
 
-// 1. Tiny web server so Railway's health check passes successfully
+// Tiny web server to satisfy Railway's health check
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -13,7 +13,7 @@ app.listen(PORT, () => {
   console.log(`Web server listening on port ${PORT}`);
 });
 
-// 2. Discord Bot Logic
+// Discord Bot Logic
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 const commands = [
