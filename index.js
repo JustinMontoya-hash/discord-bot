@@ -1,5 +1,19 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const express = require('express');
 
+// 1. Tiny web server so Railway's health check passes successfully
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('NekoSMP Bot is online and running!');
+});
+
+app.listen(PORT, () => {
+  console.log(`Web server listening on port ${PORT}`);
+});
+
+// 2. Discord Bot Logic
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 const commands = [
@@ -26,7 +40,7 @@ client.once('ready', async () => {
     );
     console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
-    console.error('Failed to register slash commands:', error);
+    console.error(error);
   }
 });
 
