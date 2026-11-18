@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const express = require('express');
 
+// Web server for Railway health checks
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -19,7 +20,8 @@ const commands = [
     .setName('say')
     .setDescription('Says what you want')
     .addStringOption(option =>
-      option.name('message')
+      option
+        .setName('message')
         .setDescription('The message the bot should say')
         .setRequired(true)
     ),
