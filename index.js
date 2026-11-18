@@ -97,23 +97,42 @@ client.on('channelCreate', async channel => {
   }
 });
 
-// Smart Bot Mention Listener
+// Smart Message & Ticket Detective Listener
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
-  if (!message.mentions.has(client.user)) return;
-
+  
   const content = message.content.toLowerCase();
+  const channelName = message.channel.name ? message.channel.name.toLowerCase() : '';
+  const isTicketChannel = channelName.includes('ticket') || channelName.includes('support');
 
-  // Keywords that trigger the support redirect
-  const issueKeywords = ['issue', 'problem', 'trouble', 'bug', 'lag', 'bad experience', 'grief', 'ban', 'hack', 'stuck', 'error'];
-  const hasIssue = issueKeywords.some(keyword => content.includes(keyword));
+  // Check if the user is saying they are done inside a ticket channel
+  const doneKeywords = ["i'm done", "im done", "i am done", "that's all", "thats all", "done giving", "all good", "finished"];
+  const isDone = doneKeywords.some(phrase => content.includes(phrase));
 
-  if (hasIssue) {
-    // If they mentioned an issue/trouble, redirect them to the ticket channel
-    await message.reply(`Hey <@${message.author.id}>! If you are having trouble with the server or had a bad experience, please go to **#🎟️│create-a-ticket** and please give **every detail as possible** so our staff can help you quickly! 🎫`);
-  } else {
-    // If they just said hi, asked how it's going, or chatted normally
-    await message.reply(`Hey <@${message.author.id}>! NekoSMP is running smoothly 🚀. How can I help you today?`);
+  if (isTicketChannel && isDone) {
+    await message.reply(`Thank you for giving your reasons, <@${message.author.id}>! Staff are going to check this ticket, review the info, and get back to you shortly. Hang tight! 🎫✨`);
+    return;
+  }
+
+  // If we are inside a ticket channel and they are describing an issue or talking to the bot
+  if (isTicketChannel) {
+    // Detective mode: ask deeper investigative questions to gather every single detail
+    await message.reply(`🕵️‍♂️ **Detective Bot:** Thanks for the details, <@${message.author.id}>! To help staff solve this even faster, could you tell me: **When exactly did this happen, and do you have any screenshots or error messages?** (When you've provided all your reasons and details, just say *"I'm done"*!)`);
+    return;
+  }
+
+  // If outside a ticket channel (e.g., general chat), only respond when the bot is mentioned (@NEKOSMP)
+  if (message.mentions.has(client.user)) {
+    const issueKeywords = ['issue', 'problem', 'trouble', 'bug', 'lag', 'bad experience', 'grief', 'ban', 'hack', 'stuck', 'error'];
+    const hasIssue = issueKeywords.some(keyword => content.includes(keyword));
+
+    if (hasIssue) {
+      // General chat issue redirect
+      await message.reply(`Hey <@${message.author.id}>! If you are having trouble with the server or had a bad experience, please go to **#🎟️│create-a-ticket** and please give **every detail as possible** so our staff can help you quickly! 🎫`);
+    } else {
+      // Normal general chat conversation (math, greetings, general questions)
+      await message.reply(`Hey <@${message.author.id}>! NekoSMP is running smoothly 🚀. How can I help you today?`);
+    }
   }
 });
 
