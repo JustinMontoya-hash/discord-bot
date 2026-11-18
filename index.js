@@ -1,12 +1,12 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const express = require('express');
 
-// Web server for Railway health check
+// Web server for Railway health checks
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-  res.send('NekoSMP Bot is online and running!');
+  res.send('NEKOSMP Bot is online and running!');
 });
 
 app.listen(PORT, () => {
@@ -20,6 +20,15 @@ const commands = [
   new SlashCommandBuilder()
     .setName('ping')
     .setDescription('Replies with Pong!'),
+  new SlashCommandBuilder()
+    .setName('say')
+    .setDescription('Makes NEKOSMP send a message in this channel')
+    .addStringOption(input =>
+      input
+        .setName('message')
+        .setDescription('The message the bot should say')
+        .setRequired(true)
+    ),
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -28,12 +37,11 @@ client.once('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
   try {
-    console.log('Started refreshing application (/) commands.');
     await rest.put(
       Routes.applicationCommands(client.user.id),
       { body: commands },
     );
-    console.log('Successfully reloaded application (/) commands.');
+    console.log('Successfully registered /ping and /say commands.');
   } catch (error) {
     console.error(error);
   }
@@ -43,7 +51,13 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'ping') {
-    await interaction.reply('Pong! NekoSMP is online 🚀');
+    await interaction.reply('Pong! NEKOSMP is online.');
+  }
+
+  if (interaction.commandName === 'say') {
+    const messageText = interaction.options.getString('message');
+    await interaction.reply({ content: 'Sent!', ephemeral: true });
+    await interaction.channel.send(messageText);
   }
 });
 
