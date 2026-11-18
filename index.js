@@ -96,42 +96,45 @@ client.on('channelCreate', async channel => {
   }
 });
 
-// Track how many messages a user sends in a ticket so Detective Mode doesn't repeat itself
+// Track ticket conversation steps per channel
 const ticketStepTracker = new Map();
 
 // Smart Message & Ticket Detective Listener
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
 
-  // Strip the bot mention out of the text so we can read the actual message cleanly
   const cleanText = message.content.replace(/<@!?\d+>/g, '').trim().toLowerCase();
   const channelName = message.channel.name ? message.channel.name.toLowerCase() : '';
   const isTicketChannel = channelName.includes('ticket') || channelName.includes('support');
+  const isMentioned = message.mentions.has(client.user);
 
   // ==========================================
   // 1. INSIDE A TICKET CHANNEL
   // ==========================================
   if (isTicketChannel) {
-    // Check if the user is saying they are finished
+    // Always listen for the "I'm done" closing trigger (even without a mention)
     const doneKeywords = ["i'm done", "im done", "i am done", "that's all", "thats all", "done giving", "all good", "finished"];
     const isDone = doneKeywords.some(phrase => cleanText.includes(phrase));
 
     if (isDone) {
-      ticketStepTracker.delete(message.channel.id); // Reset tracker for this channel
+      ticketStepTracker.delete(message.channel.id);
       await message.reply(`Thank you for giving your reasons, <@${message.author.id}>! Staff are going to check this ticket, review all the info you shared, and get back to you shortly. Hang tight! 🎫✨`);
       return;
     }
 
-    // Detective Mode: Vary the follow-up questions based on how many messages they've sent in the ticket
     const currentStep = ticketStepTracker.get(message.channel.id) || 1;
-    ticketStepTracker.set(message.channel.id, currentStep + 1);
 
-    if (currentStep === 1) {
-      await message.reply(`🕵️‍♂️ **Detective Mode:** Okay, noted! To help staff investigate this properly, **when did this happen, and were any other players involved?** *(Add any extra details or screenshots, and say **"I'm done"** when you're finished!)*`);
-    } else if (currentStep === 2) {
-      await message.reply(`🕵️‍♂️ **Detective Mode:** Got it, adding that to your case file. **Did you see any error messages, or do you have coordinates/proof to attach?** *(If that's everything, just type **"I'm done"**!)*`);
-    } else {
-      await message.reply(`📝 Noted and added to the ticket! Feel free to share more info, or type **"I'm done"** whenever you're ready for staff to review.`);
+    // Only trigger Detective Mode automatically on the VERY FIRST message, OR when the user mentions @NekoSMP
+    if (currentStep === 1 || isMentioned) {
+      ticketStepTracker.set(message.channel.id, currentStep + 1);
+
+      if (currentStep === 1) {
+        await message.reply(`🕵️‍♂️ **Detective Mode:** Okay, noted! To help staff investigate this properly, **when did this happen, and were any other players involved?** *(Send your details, and ping me or say **"I'm done"** when you're finished!)*`);
+      } else if (currentStep === 2) {
+        await message.reply(`🕵️‍♂️ **Detective Mode:** Got it, adding that to your case file. **Did you see any error messages, or do you have coordinates/screenshots to attach?** *(Type **"I'm done"** when you've shared everything!)*`);
+      } else {
+        await message.reply(`📝 Noted and added to the ticket! Let me know if you need anything else, or type **"I'm done"** so staff can review.`);
+      }
     }
     return;
   }
@@ -139,7 +142,7 @@ client.on('messageCreate', async message => {
   // ==========================================
   // 2. OUTSIDE TICKET CHANNELS (GENERAL CHAT)
   // ==========================================
-  if (message.mentions.has(client.user)) {
+  if (isMentioned) {
     // A. Issue / Help redirect
     const issueKeywords = ['issue', 'problem', 'trouble', 'bug', 'lag', 'bad experience', 'grief', 'ban', 'hack', 'stuck', 'error', 'help'];
     if (issueKeywords.some(keyword => cleanText.includes(keyword))) {
@@ -181,7 +184,7 @@ client.on('messageCreate', async message => {
       return;
     }
 
-    // E. Questions (anything ending with '?' or starting with question words)
+    // E. Questions
     if (cleanText.includes('?') || /^(what|why|how|when|who|where|can|is|do|are)\b/.test(cleanText)) {
       const questionReplies = [
         `Good question, <@${message.author.id}>! Check **#📢│announcements** or **#📊│polls** if it's about server updates, otherwise ask a staff member! 👀`,
@@ -193,7 +196,7 @@ client.on('messageCreate', async message => {
       return;
     }
 
-    // F. Varied General Chat Fallbacks (Never repeats the same line every time!)
+    // F. Varied General Chat Fallbacks
     const generalReplies = [
       `I hear you, <@${message.author.id}>! 👀`,
       `Need something, <@${message.author.id}>? You can always use \`/ping\` or \`/say\`! ✨`,
