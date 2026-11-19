@@ -54,7 +54,8 @@ const commands = [
           { name: 'Lag / High Ping', value: 'lag' },
           { name: 'Login / Register / Connection', value: 'login' },
           { name: 'Griefing / Stealing / Rule-Break', value: 'grief' },
-          { name: 'Lost Items / Bug / Shop Issue', value: 'bug' }
+          { name: 'Lost Items / Bug / Shop Issue', value: 'bug' },
+          { name: 'Ban / Mute Appeal', value: 'ban' }
         )
     ),
 ].map(command => command.toJSON());
@@ -78,8 +79,9 @@ client.once('ready', async () => {
 // Trackers per ticket channel
 const ticketLogs = new Map();
 const ticketStepTracker = new Map();
-const activeGuideMode = new Set(); // Channels where /guideplayer is active
-const botMutedInTicket = new Set(); // Channels where the player told the bot to stop guiding
+const activeGuideMode = new Set();     // Channels where /guideplayer is active
+const guideIntroSent = new Set();      // Prevents repeating the "Tell me what is happening" prompt
+const botMutedInTicket = new Set();    // Channels where the player told the bot to stop guiding
 
 // Helper function to save messages to the ticket log
 function logTicketMessage(channelId, authorTag, content, attachmentCount) {
@@ -99,21 +101,29 @@ function logTicketMessage(channelId, authorTag, content, attachmentCount) {
   log.entries.push(entryText);
 }
 
-// Smart Self-Help Guide Generator
-function getTicketGuidance(text) {
-  if (text.includes('lag') || text.includes('ping') || text.includes('tps') || text.includes('freeze')) {
+// Smart Self-Help Guide Generator (Returns null if no specific category matches!)
+function getSpecificGuidance(text) {
+  // 1. Lag / Ping / Performance
+  if (/\b(lag|lagging|ping|tps|freeze|freezing|fps|slow|delay|crash|crashing)\b/.test(text)) {
     return `🛠️ **Step-by-Step Guide (Lag / High Ping):**\n1. Lower your render distance to **6–8 chunks** in Video Settings.\n2. Close any background downloads/apps using your Wi-Fi.\n3. Note that we are upgrading from Aternos to a dedicated host with way more RAM on **December 1**, which will permanently fix server-side lag!`;
   }
-  if (text.includes('login') || text.includes('register') || text.includes('password') || text.includes('auth') || text.includes('kick')) {
-    return `🛠️ **Step-by-Step Guide (Login / Connection):**\n1. If it asks you to register, type \`/register <password> <password>\` in chat.\n2. If you already played before, type \`/login <yourpassword>\`.\n3. Make sure you are on the supported Minecraft version and double-check the server IP & port!`;
+  // 2. Login / Join / Connection / Bedrock & Java
+  if (/\b(login|register|password|auth|authme|kick|kicked|join|joining|connect|connecting|ip|port|version|bedrock|java|offline|cant enter|can't enter)\b/.test(text)) {
+    return `🛠️ **Step-by-Step Guide (Login / Joining Server):**\n1. If it asks you to register in-game, type \`/register <password> <password>\` in chat.\n2. If you already played before, type \`/login <yourpassword>\`.\n3. If you're stuck on *"Connecting"* or *"Outdated Client"*, double-check the server IP/port in **#📢│announcements** and make sure your game version matches!`;
   }
-  if (text.includes('grief') || text.includes('steal') || text.includes('stole') || text.includes('hack') || text.includes('kill')) {
-    return `🛠️ **Step-by-Step Guide (Griefing / Rule-Break):**\n1. Do **not** touch or rebuild the griefed area yet so staff can inspect the blocks.\n2. Share the **exact coordinates (X, Y, Z)** and the **time** it happened.\n3. Upload any screenshots or video clips right here!`;
+  // 3. Griefing / Stealing / PvP / Rule-breaking
+  if (/\b(grief|griefed|griefing|steal|stole|stolen|chest|house|base|raid|raided|hack|hacker|cheating|xray|x-ray|kill|killed|spawnkill)\b/.test(text)) {
+    return `🛠️ **Step-by-Step Guide (Griefing / Stealing / Rule-Break):**\n1. Do **not** touch or rebuild the griefed area yet so staff can inspect the blocks.\n2. Reply with the **exact coordinates (X, Y, Z)** and **what time** it happened.\n3. Drop any screenshots, video clips, or player usernames right here!`;
   }
-  if (text.includes('lost') || text.includes('item') || text.includes('bug') || text.includes('glitch') || text.includes('shop')) {
-    return `🛠️ **Step-by-Step Guide (Bug / Lost Items):**\n1. Tell me **what items** you lost and **what command or action** triggered the bug.\n2. If you have a screenshot of your inventory before/after, drop it here so staff can verify and restore it!`;
+  // 4. Lost Items / Bugs / Shop / Economy
+  if (/\b(lost|lose|item|items|diamond|netherite|gear|armor|bug|glitch|shop|money|balance|bal|sell|buy|command|rtp|tpa|home)\b/.test(text)) {
+    return `🛠️ **Step-by-Step Guide (Bug / Lost Items / Shop):**\n1. Reply with **what exact items or money** you lost and **what command or action** caused the issue.\n2. If you have a screenshot of your inventory or chat error, upload it here so staff can verify and restore it!`;
   }
-  return `🛠️ **NekoSMP Interactive Guide:**\nI'm here to help walk you through your issue! Tell me specifically what is happening (for example: *lag, login/password issue, griefing, bug, or lost items*) and I'll give you the steps to fix it.`;
+  // 5. Ban / Mute Appeal
+  if (/\b(ban|banned|mute|muted|appeal|unban|unmute|punish|punishment)\b/.test(text)) {
+    return `🛠️ **Step-by-Step Guide (Ban / Mute Appeal):**\n1. Share your **exact Minecraft username** and **what the ban/mute screen says**.\n2. Explain honestly what happened and why you believe you should be unbanned/unmuted so staff can review your appeal.`;
+  }
+  return null;
 }
 
 // Slash Command Handler
@@ -162,7 +172,7 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply({ embeds: [summaryEmbed] });
   }
 
-  // NEW: /guideplayer Staff Command
+  // /guideplayer Staff Command
   if (interaction.commandName === 'guideplayer') {
     const channelId = interaction.channel.id;
     const channelName = interaction.channel.name.toLowerCase();
@@ -172,30 +182,37 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Activate Guide Mode & clear any previous mute flag
     activeGuideMode.add(channelId);
     botMutedInTicket.delete(channelId);
+    guideIntroSent.delete(channelId);
 
     if (ticketLogs.has(channelId)) {
       ticketLogs.get(channelId).status = '🤖 Bot Actively Guiding Player';
     }
 
     const chosenTopic = interaction.options.getString('topic') || 'auto';
-    let initialGuide = '';
+    let initialGuide = null;
 
     if (chosenTopic !== 'auto') {
-      initialGuide = getTicketGuidance(chosenTopic);
+      initialGuide = getSpecificGuidance(chosenTopic);
     } else {
-      // Check existing ticket history to auto-detect what they already complained about
       const log = ticketLogs.get(channelId);
       const historyText = log ? log.entries.join(' ').toLowerCase() : '';
-      initialGuide = getTicketGuidance(historyText);
+      initialGuide = getSpecificGuidance(historyText);
     }
 
     await interaction.reply({ content: '✅ Activated **Player Guide Mode** for this ticket!', ephemeral: true });
-    await interaction.channel.send(
-      `🤖 **NekoSMP Guide Activated!** Staff asked me to help walk you through this step-by-step.\n\n${initialGuide}\n\n*(Reply with what happens when you try this! If you'd prefer to wait for a human staff member instead, just say **"stop guiding me"**.)*`
-    );
+
+    if (initialGuide) {
+      await interaction.channel.send(
+        `🤖 **NekoSMP Guide Activated!** Staff asked me to help walk you through this step-by-step.\n\n${initialGuide}\n\n*(Reply with what happens when you try this! If you'd prefer to wait for a human staff member instead, just say **"stop guiding me"**.)*`
+      );
+    } else {
+      guideIntroSent.add(channelId);
+      await interaction.channel.send(
+        `🤖 **NekoSMP Guide Activated!** Staff asked me to help you out.\n\nTell me specifically what is happening (for example: *lag, login/joining issue, griefing, lost items, or ban appeal*) and I'll walk you through fixing it!\n\n*(Or say **"stop guiding me"** anytime if you want to wait for human staff.)*`
+      );
+    }
   }
 });
 
@@ -252,17 +269,15 @@ client.on('messageCreate', async message => {
       "stop bot", "want real staff", "talk to staff", "need real staff",
       "not helping", "leave me alone"
     ];
-    const wantsBotToStop = stopGuidePhrases.some(phrase => cleanText.includes(phrase));
-
-    if (wantsBotToStop) {
+    if (stopGuidePhrases.some(phrase => cleanText.includes(phrase))) {
       activeGuideMode.delete(channelId);
+      guideIntroSent.delete(channelId);
       botMutedInTicket.add(channelId);
 
       if (ticketLogs.has(channelId)) {
         ticketLogs.get(channelId).status = '🙋 Player Requested Human Staff';
       }
 
-      // Find a Staff/Admin/Mod role to ping if one exists in the server, otherwise ping @here
       const staffRole = message.guild.roles.cache.find(r =>
         ['staff', 'admin', 'moderator', 'mod', 'helper', 'owner'].some(word => r.name.toLowerCase().includes(word))
       );
@@ -274,17 +289,16 @@ client.on('messageCreate', async message => {
       return;
     }
 
-    // If the player previously told the bot to stop guiding, stay quiet unless they explicitly mention @Bot again
+    // Stay quiet if muted unless explicitly pinged again
     if (botMutedInTicket.has(channelId) && !isMentioned) {
       return;
     }
 
     // Check if the user is saying they are finished
     const doneKeywords = ["i'm done", "im done", "i am done", "that's all", "thats all", "done giving", "all good", "finished"];
-    const isDone = doneKeywords.some(phrase => cleanText.includes(phrase));
-
-    if (isDone) {
+    if (doneKeywords.some(phrase => cleanText.includes(phrase))) {
       activeGuideMode.delete(channelId);
+      guideIntroSent.delete(channelId);
       if (ticketLogs.has(channelId)) {
         ticketLogs.get(channelId).status = '✅ Ready for Staff Review';
       }
@@ -293,26 +307,38 @@ client.on('messageCreate', async message => {
       return;
     }
 
-    // If /guideplayer is ACTIVE in this channel, respond conversationally to help the player
+    // If /guideplayer is ACTIVE in this channel
     if (activeGuideMode.has(channelId)) {
-      if (cleanText.includes('work') || cleanText.includes('fixed') || cleanText.includes('thank') || cleanText.includes('solved')) {
+      if (/\b(work|worked|working|fixed|thank|thanks|solved)\b/.test(cleanText)) {
         activeGuideMode.delete(channelId);
+        guideIntroSent.delete(channelId);
         await message.reply(`Awesome, glad that helped, <@${message.author.id}>! 🎉 If everything is good now, just type **"I'm done"** so staff know this ticket is ready to wrap up.`);
         return;
       }
 
-      const specificGuide = getTicketGuidance(cleanText);
-      await message.reply(
-        `${specificGuide}\n\n*(Let me know if that worked, or say **"stop guiding me"** if you'd like me to ping human staff instead!)*`
-      );
+      const specificGuide = getSpecificGuidance(cleanText);
+      if (specificGuide) {
+        await message.reply(
+          `${specificGuide}\n\n*(Let me know if that worked, or say **"stop guiding me"** if you'd like me to ping human staff instead!)*`
+        );
+      } else if (!guideIntroSent.has(channelId)) {
+        guideIntroSent.add(channelId);
+        await message.reply(
+          `🛠️ **NekoSMP Interactive Guide:**\nI'm here to help walk you through your issue! Tell me specifically what is happening (for example: *lag, login/joining issue, griefing, lost items, or ban appeal*) and I'll give you the steps to fix it.\n\n*(Or say **"stop guiding me"** to ping staff!)*`
+        );
+      } else {
+        // Never repeat the intro! Acknowledge their custom message and ask a helpful follow-up
+        await message.reply(
+          `Got it, <@${message.author.id}>—I've added those details to your ticket! Could you share your **Minecraft username** and any **screenshots or coordinates** if you have them? *(Type **"I'm done"** when finished, or **"stop guiding me"** to ping staff!)*`
+        );
+      }
       return;
     }
 
-    // Standard Ticket Behavior (when /guideplayer is not active):
-    // Give real advice if they ask how to fix something
-    if (isMentioned || cleanText.includes('guide') || cleanText.includes('how') || cleanText.includes('fix') || cleanText.includes('?')) {
-      const guideReply = getTicketGuidance(cleanText);
-      await message.reply(`${guideReply}\n\n*(If you've shared all your details, just type **"I'm done"**—or say **"stop guiding me"** to ping staff!)*`);
+    // Standard Ticket Behavior (when /guideplayer is NOT active):
+    const specificGuide = getSpecificGuidance(cleanText);
+    if (specificGuide && (isMentioned || cleanText.includes('guide') || cleanText.includes('how') || cleanText.includes('fix') || cleanText.includes('?'))) {
+      await message.reply(`${specificGuide}\n\n*(If you've shared all your details, just type **"I'm done"**—or say **"stop guiding me"** to ping staff!)*`);
       return;
     }
 
@@ -322,7 +348,8 @@ client.on('messageCreate', async message => {
       ticketStepTracker.set(channelId, currentStep + 1);
 
       if (currentStep === 1) {
-        await message.reply(`🕵️‍♂️ **Detective Mode:** Got it, <@${message.author.id}>! I've started logging your ticket. **When did this happen, and were any other players involved?**\n\n*(Keep adding details, ask me how to fix it, or say **"I'm done"** when finished!)*`);
+        const autoTip = specificGuide ? `\n\n${specificGuide}` : '';
+        await message.reply(`🕵️‍♂️ **Detective Mode:** Got it, <@${message.author.id}>! I've started logging your ticket. **When did this happen, and were any other players involved?**${autoTip}\n\n*(Keep adding details, ask me how to fix it, or say **"I'm done"** when finished!)*`);
       } else {
         await message.reply(`📝 Logged! Anything else to add (screenshots, coordinates, or error messages)? If you're ready for staff, just type **"I'm done"**.`);
       }
